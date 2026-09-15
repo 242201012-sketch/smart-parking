@@ -1,0 +1,55 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: smartparking
+      POSTGRES_USER: smartparking_api
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-SmartParking_Dev_2026_Change_Me}"
+    ports:
+      - "5432:5432"
+    volumes:
+      - smartparking_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U smartparking_api -d smartparking"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build:
+      context: .
+      dockerfile: SmartParking.API/Dockerfile
+    restart: on-failure
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: "http://+:10000"
+      Database__Provider: PostgreSQL
+      Database__ApplyMigrationsOnStartup: "true"
+      Database__UseEnsureCreated: "true"
+      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=smartparking;Username=smartparking_api;Password=${POSTGRES_PASSWORD:-SmartParking_Dev_2026_Change_Me}"
+      Jwt__Key: "${JWT_KEY:-SmartParking_Development_Key_Change_Me_2026!}"
+      Jwt__Issuer: SmartParkingAPI
+      Jwt__Audience: SmartParkingClient
+      Jwt__ExpireMinutes: "60"
+      Cors__AllowedOrigins__0: "http://localhost:3000"
+      Sensor__IngestKey: "${SENSOR_INGEST_KEY:-SmartParking_Development_Sensor_Key_Change_Me}"
+      Camera__WebhookKey: "${CAMERA_WEBHOOK_KEY:-SmartParking_Development_Camera_Key_Change_Me}"
+      Admin__Email: "${ADMIN_EMAIL:-admin@example.com}"
+      Admin__Password: "${ADMIN_PASSWORD:-Change_Me_Admin_2026!}"
+      Payment__Provider: "${PAYMENT_PROVIDER:-disabled}"
+      Payment__ApiKey: "${IYZICO_API_KEY:-}"
+      Payment__SecretKey: "${IYZICO_SECRET_KEY:-}"
+      Payment__BaseUrl: "${IYZICO_BASE_URL:-https://sandbox-api.iyzipay.com}"
+      Payment__CallbackBaseUrl: "${PAYMENT_CALLBACK_BASE_URL:-}"
+      Payment__ReturnScheme: "smartparking://payment-result"
+      Firebase__Enabled: "${FIREBASE_ENABLED:-false}"
+      Firebase__ProjectId: "${FIREBASE_PROJECT_ID:-}"
+      Firebase__ServiceAccountJson: "${FIREBASE_SERVICE_ACCOUNT_JSON:-}"
+    ports:
+      - "58278:10000"
+
+volumes:
+  smartparking_postgres_data:

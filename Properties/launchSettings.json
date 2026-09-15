@@ -1,0 +1,12 @@
+{
+  "profiles": {
+    "SmartParking": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      },
+      "applicationUrl": "https://localhost:58897;http://localhost:58898"
+    }
+  }
+}

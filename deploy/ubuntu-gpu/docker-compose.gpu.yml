@@ -1,0 +1,107 @@
+# SmartParking — GPU'lu Ubuntu üretim yığını
+#
+# Ön koşul: deploy/ubuntu-gpu/setup-ubuntu-gpu.sh (nvidia-container-toolkit)
+#
+# Kullanım:
+#   sudo docker compose -f deploy/ubuntu-gpu/docker-compose.gpu.yml up -d --build
+#
+# Ortam değişkenleri (.env üzerinden):
+#   POSTGRES_PASSWORD, JWT_KEY, SENSOR_INGEST_KEY, CAMERA_WEBHOOK_KEY,
+#   ADMIN_EMAIL, ADMIN_PASSWORD, IYZICO_API_KEY, IYZICO_SECRET_KEY,
+#   PAYMENT_CALLBACK_BASE_URL, FIREBASE_ENABLED, FIREBASE_PROJECT_ID,
+#   FIREBASE_SERVICE_ACCOUNT_JSON, ANPR_API_KEY, ANPR_ENGINE_PATH
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: smartparking
+      POSTGRES_USER: smartparking_api
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD ayarlanmalı}"
+    volumes:
+      - smartparking_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U smartparking_api -d smartparking"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  documentdb-gateway:
+    # AWS DocumentDB, VPC içinde olduğundan erişim için güvenli bir gönderme
+    # katmanı kullanılabilir. Doğrudan erişimde MongoDB uyumlu uç aynıdır:
+    # uygulama ConnectionString olarak DocumentDb:ConnectionString okur.
+    image: mongo:7.0.14
+    container_name: smartparking-mongodb-proxy
+    restart: unless-stopped
+    ports:
+      - "27018:27017"
+    command: mongod --bind_ip 0.0.0.0
+    volumes:
+      - smartparking_mongo_data:/data/db
+    profiles: ["local-mongo"]
+
+  anpr:
+    build:
+      context: ../..
+      dockerfile: AI/anpr-tensorrt/Dockerfile
+    image: smartparking/anpr-tensorrt:latest
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    environment:
+      ANPR_API_KEY: "${ANPR_API_KEY:-smartparking-anpr-dev-key}"
+      ANPR_ENGINE_PATH: "/models/${ANPR_ENGINE_FILE:-plate.engine}"
+      ANPR_ALLOW_NO_GPU: "${ANPR_ALLOW_NO_GPU:-0}"
+    volumes:
+      - "${ANPR_MODELS_DIR:-/mnt/models}:/models:ro"
+    ports:
+      - "8010:8010"
+
+  api:
+    build:
+      context: ../..
+      dockerfile: SmartParking.API/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: "http://+:8080"
+      Database__Provider: PostgreSQL
+      Database__ApplyMigrationsOnStartup: "true"
+      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=smartparking;Username=smartparking_api;Password=${POSTGRES_PASSWORD}"
+      DocumentDb__ConnectionString: "${DOCUMENTDB_CONNECTION_STRING:-}"
+      DocumentDb__DatabaseName: "${DOCUMENTDB_DATABASE_NAME:-smartparking-telemetry}"
+      Jwt__Key: "${JWT_KEY:?JWT_KEY ayarlanmalı}"
+      Jwt__Issuer: SmartParkingAPI
+      Jwt__Audience: SmartParkingClient
+      Jwt__ExpireMinutes: "60"
+      Cors__AllowedOrigins__0: "${CORS_ORIGIN:-https://smartparking.example.com}"
+      Sensor__IngestKey: "${SENSOR_INGEST_KEY}"
+      Camera__WebhookKey: "${CAMERA_WEBHOOK_KEY}"
+      Anpr__TensorRtBaseUrl: "http://anpr:8010"
+      Anpr__TensorRtApiKey: "${ANPR_API_KEY:-}"
+      Admin__Email: "${ADMIN_EMAIL}"
+      Admin__Password: "${ADMIN_PASSWORD}"
+      Payment__Provider: "${PAYMENT_PROVIDER:-disabled}"
+      Payment__ApiKey: "${IYZICO_API_KEY:-}"
+      Payment__SecretKey: "${IYZICO_SECRET_KEY:-}"
+      Payment__BaseUrl: "https://sandbox-api.iyzipay.com"
+      Payment__CallbackBaseUrl: "${PAYMENT_CALLBACK_BASE_URL:-}"
+      Payment__ReturnScheme: "smartparking://payment-result"
+      Firebase__Enabled: "${FIREBASE_ENABLED:-false}"
+      Firebase__ProjectId: "${FIREBASE_PROJECT_ID:-}"
+      Firebase__ServiceAccountJson: "${FIREBASE_SERVICE_ACCOUNT_JSON:-}"
+    ports:
+      - "8080:8080"
+
+volumes:
+  smartparking_postgres_data:
+  smartparking_mongo_data:

@@ -1,0 +1,14 @@
+{
+  "profiles": {
+    "SmartParking.API": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "launchUrl": "swagger",
+      "dotnetRunMessages": true,
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      },
+      "applicationUrl": "https://localhost:58277;http://localhost:58278"
+    }
+  }
+}

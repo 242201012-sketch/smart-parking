@@ -1,0 +1,60 @@
+services:
+  - type: web
+    name: smartparking-api
+    runtime: docker
+    plan: free
+    region: frankfurt
+    dockerfilePath: ./SmartParking.API/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: Database__Provider
+        value: PostgreSQL
+      - key: Database__ApplyMigrationsOnStartup
+        value: "true"
+      - key: Database__UseEnsureCreated
+        value: "true"
+      - key: ConnectionStrings__DefaultConnection
+        fromDatabase:
+          name: smartparking-db
+          property: connectionString
+      - key: Jwt__Key
+        generateValue: true
+      - key: Jwt__Issuer
+        value: SmartParkingAPI
+      - key: Jwt__Audience
+        value: SmartParkingClient
+      - key: Jwt__ExpireMinutes
+        value: "60"
+      - key: Cors__AllowedOrigins__0
+        value: https://smartparking-amasya-2026.copper-tiger-8849.chatgpt.site
+      - key: Sensor__IngestKey
+        sync: false
+      - key: Camera__WebhookKey
+        sync: false
+      - key: Admin__Email
+        sync: false
+      - key: Admin__Password
+        sync: false
+      - key: Payment__Provider
+        value: iyzico
+      - key: Payment__ApiKey
+        sync: false
+      - key: Payment__SecretKey
+        sync: false
+      - key: Payment__BaseUrl
+        value: https://sandbox-api.iyzipay.com
+      - key: Payment__CallbackBaseUrl
+        value: https://smartparking-api-x1xp.onrender.com
+      - key: Payment__ReturnScheme
+        value: smartparking://payment-result
+
+databases:
+  - name: smartparking-db
+    region: frankfurt
+    plan: free
+    databaseName: smartparking
+    user: smartparking_api
+    ipAllowList: []

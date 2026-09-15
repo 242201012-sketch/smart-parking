@@ -1,0 +1,49 @@
+name: Render API verify
+
+on:
+  pull_request:
+    paths:
+      - "SmartParking.API/**"
+      - "SmartParking.Application/**"
+      - "SmartParking.Domain/**"
+      - "SmartParking.Infrastructure/**"
+      - "SmartParking.Tests/**"
+      - "global.json"
+      - "render.yaml"
+      - ".github/workflows/verify-render-api.yml"
+  push:
+    branches: [main]
+    paths:
+      - "SmartParking.API/**"
+      - "SmartParking.Application/**"
+      - "SmartParking.Domain/**"
+      - "SmartParking.Infrastructure/**"
+      - "SmartParking.Tests/**"
+      - "global.json"
+      - "render.yaml"
+      - ".github/workflows/verify-render-api.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Kaynağı al
+        uses: actions/checkout@v7
+
+      - name: .NET 10 SDK kur
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "10.0.302"
+
+      - name: Paketleri geri yükle
+        run: dotnet restore SmartParkingAPI.sln
+
+      - name: Release derlemesi
+        run: dotnet build SmartParkingAPI.sln --configuration Release --no-restore
+
+      - name: Testler
+        run: dotnet test SmartParking.Tests/SmartParking.Tests.csproj --configuration Release --no-build

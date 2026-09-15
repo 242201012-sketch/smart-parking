@@ -1,0 +1,55 @@
+steps:
+  - id: api-image-build
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --file=SmartParking.API/Dockerfile
+      - --tag=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE}:${BUILD_ID}
+      - .
+
+  - id: api-image-push
+    name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE}:${BUILD_ID}
+
+  - id: cloud-run-deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE}
+      - --image=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE}:${BUILD_ID}
+      - --region=${_REGION}
+      - --platform=managed
+      - --port=8080
+      - --cpu=1
+      - --memory=512Mi
+      - --min-instances=${_MIN_INSTANCES}
+      - --max-instances=${_MAX_INSTANCES}
+      - --concurrency=80
+      - --timeout=3600
+      - --cpu-throttling
+      - --allow-unauthenticated
+      - --service-account=smartparking-runtime@${PROJECT_ID}.iam.gserviceaccount.com
+      - --add-cloudsql-instances=${PROJECT_ID}:${_REGION}:${_SQL_INSTANCE}
+      - --set-env-vars=ASPNETCORE_ENVIRONMENT=Production,Database__Provider=PostgreSQL,Database__ApplyMigrationsOnStartup=true,Database__UseEnsureCreated=true,Firebase__Enabled=true,Firebase__ProjectId=${PROJECT_ID},Jwt__Issuer=SmartParkingAPI,Jwt__Audience=SmartParkingClient,Jwt__ExpireMinutes=60,Cors__AllowedOrigins__0=${_CORS_ORIGIN},Payment__Provider=iyzico,Payment__BaseUrl=https://sandbox-api.iyzipay.com,Payment__CallbackBaseUrl=https://${_SERVICE}-${PROJECT_NUMBER}.${_REGION}.run.app,Payment__ReturnScheme=smartparking://payment-result
+      - --set-secrets=ConnectionStrings__DefaultConnection=smartparking-db-connection:latest,Jwt__Key=smartparking-jwt-key:latest,Sensor__IngestKey=smartparking-sensor-key:latest,Camera__WebhookKey=smartparking-camera-key:latest,Admin__Email=smartparking-admin-email:latest,Admin__Password=smartparking-admin-password:latest,Payment__ApiKey=smartparking-iyzico-api-key:latest,Payment__SecretKey=smartparking-iyzico-secret-key:latest
+
+substitutions:
+  _REGION: europe-west3
+  _REPOSITORY: smartparking
+  _SERVICE: smartparking-api
+  _SQL_INSTANCE: smartparking-db
+  _MIN_INSTANCES: "0"
+  _MAX_INSTANCES: "1"
+  _CORS_ORIGIN: https://smartparking-amasya-2026.copper-tiger-8849.chatgpt.site
+
+images:
+  - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE}:${BUILD_ID}
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+timeout: 1200s

@@ -1,0 +1,4 @@
+# Bu dosya SmartParking.API klasöründen çalıştırmak isteyenler içindir.
+# Ana compose tanımı bir üst dizindeki docker-compose.yml dosyasıdır.
+include:
+  - ../docker-compose.yml

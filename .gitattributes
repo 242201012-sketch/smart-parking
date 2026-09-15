@@ -1,0 +1,34 @@
+# Genel ayar: metin dosyalarÄ± iÃ§in satÄ±r sonlarÄ±nÄ± normalize et
+* text=auto
+
+# C# kaynak kodu iÃ§in diff Ã¶zelleÅŸtirmesi
+*.cs text diff=csharp
+
+# JSON ve XML dosyalarÄ±
+*.json text
+*.xml text
+
+# Config dosyalarÄ±
+*.config text
+*.yml text
+*.yaml text
+
+# Script dosyalarÄ±
+*.sh text eol=lf
+*.bat text eol=crlf
+*.ps1 text
+
+# Markdown ve dokÃ¼mantasyon
+*.md text
+*.txt text
+
+# Binary dosyalar (metin olarak iÅŸlenmemeli)
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.dll binary
+*.exe binary
+*.pdf binary
+
