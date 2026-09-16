@@ -20,6 +20,8 @@ analyzer:
     - windows/**
     - macos/**
     - linux/**
+    # Yerel arsiv (git disi, ~34GB eski kopyalar) — analiz disi
+    - Projects-Arsiv/**
 
 linter:
   # The lint rules applied to this project can be customized in the
