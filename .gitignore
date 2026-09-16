@@ -74,6 +74,7 @@ web-starter-backup/
 
 # Archive / release snapshots — too large for git
 api-release/
+Projects-Arsiv/
 SmartParkingFree/
 SmartParkingAdvanced/
 SmartParkingUnreal/
