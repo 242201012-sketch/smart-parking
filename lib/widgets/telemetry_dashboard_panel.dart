@@ -354,18 +354,25 @@ class _TrendStrip extends StatelessWidget {
     final totalEntries =
         points.fold<int>(0, (sum, p) => sum + p.entries);
     final totalExits = points.fold<int>(0, (sum, p) => sum + p.exits);
-    return Row(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _TrendPill(
-          label: 'Giriş',
-          value: totalEntries,
-          icon: Icons.login_rounded,
-        ),
-        const SizedBox(width: 10),
-        _TrendPill(
-          label: 'Çıkış',
-          value: totalExits,
-          icon: Icons.logout_rounded,
+        _TrendChart(points: points),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            _TrendPill(
+              label: 'Giriş',
+              value: totalEntries,
+              icon: Icons.login_rounded,
+            ),
+            const SizedBox(width: 10),
+            _TrendPill(
+              label: 'Çıkış',
+              value: totalExits,
+              icon: Icons.logout_rounded,
+            ),
+          ],
         ),
       ],
     );
@@ -410,4 +417,100 @@ class _TrendPill extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Son N ANPR kovasını giriş/çıkış çift barlarıyla çizen mini-grafik.
+/// Paketsizdir (CustomPainter); veri yoksa kendini gizler.
+class _TrendChart extends StatelessWidget {
+  const _TrendChart({required this.points});
+
+  final List<AnprTrendPoint> points;
+
+  @override
+  Widget build(BuildContext context) {
+    final buckets =
+        points.length <= 6 ? points : points.sublist(points.length - 6);
+    if (buckets.isEmpty) return const SizedBox.shrink();
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFDCE7E2)),
+      ),
+      child: CustomPaint(
+        size: const Size(double.infinity, 84),
+        painter: _TrendChartPainter(buckets),
+      ),
+    );
+  }
+}
+
+class _TrendChartPainter extends CustomPainter {
+  _TrendChartPainter(this.buckets);
+
+  final List<AnprTrendPoint> buckets;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const labelHeight = 16.0;
+    final chartHeight = size.height - labelHeight;
+    var maxValue = 1;
+    for (final p in buckets) {
+      if (p.entries > maxValue) maxValue = p.entries;
+      if (p.exits > maxValue) maxValue = p.exits;
+    }
+    final groupWidth = size.width / buckets.length;
+    final barWidth = (groupWidth / 3).clamp(4.0, 12.0);
+    final entryPaint = Paint()..color = const Color(0xFF22816D);
+    final exitPaint = Paint()..color = const Color(0xFFE49335);
+
+    for (var i = 0; i < buckets.length; i++) {
+      final point = buckets[i];
+      final centerX = groupWidth * i + groupWidth / 2;
+      final entryHeight = chartHeight * point.entries / maxValue;
+      final exitHeight = chartHeight * point.exits / maxValue;
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(
+            centerX - barWidth - 1,
+            chartHeight - entryHeight,
+            barWidth,
+            entryHeight,
+          ),
+          const Radius.circular(3),
+        ),
+        entryPaint,
+      );
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(
+            centerX + 1,
+            chartHeight - exitHeight,
+            barWidth,
+            exitHeight,
+          ),
+          const Radius.circular(3),
+        ),
+        exitPaint,
+      );
+      final label = '${point.bucketStartUtc.hour.toString().padLeft(2, '0')}:00';
+      final span = TextSpan(
+        text: label,
+        style: const TextStyle(fontSize: 9, color: Color(0xFF8CA49D)),
+      );
+      final painter = TextPainter(
+        text: span,
+        textDirection: TextDirection.ltr,
+      )..layout(maxWidth: groupWidth);
+      painter.paint(
+        canvas,
+        Offset(centerX - painter.width / 2, chartHeight + 3),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _TrendChartPainter oldDelegate) =>
+      oldDelegate.buckets != buckets;
 }
