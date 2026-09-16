@@ -14,6 +14,7 @@ public sealed class MongoTelemetryStoreOptions
     public string DatabaseName { get; set; } = "smartparking-telemetry";
     public int SensorReadingsRetentionDays { get; set; } = 365;
     public int AnprRetentionDays { get; set; } = 730;
+    public int RetentionIntervalHours { get; set; } = 24;
 }
 
 /// <summary>
@@ -25,6 +26,7 @@ public sealed class MongoTelemetryStoreOptions
 public sealed class MongoTelemetryStore : ITelemetryStore
 {
     private readonly IMongoDatabase _database;
+    private readonly MongoTelemetryStoreOptions _options;
     private readonly ILogger<MongoTelemetryStore> _logger;
 
     public MongoTelemetryStore(
@@ -33,6 +35,7 @@ public sealed class MongoTelemetryStore : ITelemetryStore
     {
         _logger = logger;
         var value = options.Value;
+        _options = value;
         var client = new MongoClient(value.ConnectionString);
         _database = client.GetDatabase(value.DatabaseName);
     }
@@ -156,6 +159,33 @@ public sealed class MongoTelemetryStore : ITelemetryStore
             occupiedSpaces,
             latestBySpace.Count - occupiedSpaces,
             DateTime.UtcNow);
+    }
+
+    public async Task<TelemetryPurgeResult> PurgeExpiredAsync(
+        DateTime utcNow,
+        CancellationToken cancellationToken)
+    {
+        var sensorCutoff = utcNow.AddDays(-_options.SensorReadingsRetentionDays);
+        var anprCutoff = utcNow.AddDays(-_options.AnprRetentionDays);
+
+        var sensorCollection = _database.GetCollection<SensorReadingBson>("SensorReadings");
+        var sensorResult = await sensorCollection.DeleteManyAsync(
+            Builders<SensorReadingBson>.Filter.Lt(item => item.ObservedAt, sensorCutoff),
+            cancellationToken);
+
+        var anprCollection = _database.GetCollection<AnprEventBson>("AnprEvents");
+        var anprResult = await anprCollection.DeleteManyAsync(
+            Builders<AnprEventBson>.Filter.Lt(item => item.ObservedAt, anprCutoff),
+            cancellationToken);
+
+        var result = new TelemetryPurgeResult(
+            (int)sensorResult.DeletedCount,
+            (int)anprResult.DeletedCount);
+        _logger.LogInformation(
+            "Telemetri retention temizliği: {SensorCount} sensör okuması, {AnprCount} ANPR olayı silindi.",
+            result.DeletedSensorReadings,
+            result.DeletedAnprEvents);
+        return result;
     }
 
     private async Task EnsureSensorReadingIndexesAsync(
@@ -311,4 +341,8 @@ public sealed class NoOpTelemetryStore : ITelemetryStore
     public Task<ParkingLotCapacitySnapshot?> GetParkingLotCapacityAsync(
         Guid parkingLotId,
         CancellationToken cancellationToken) => Task.FromResult<ParkingLotCapacitySnapshot?>(null);
+
+    public Task<TelemetryPurgeResult> PurgeExpiredAsync(
+        DateTime utcNow,
+        CancellationToken cancellationToken) => Task.FromResult(new TelemetryPurgeResult(0, 0));
 }
