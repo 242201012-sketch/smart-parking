@@ -46,6 +46,12 @@ builder.Services.AddRateLimiter(options =>
         limiter.QueueLimit = 20;
         limiter.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
     });
+    options.AddFixedWindowLimiter("dashboard", limiter =>
+    {
+        limiter.PermitLimit = 60;
+        limiter.Window = TimeSpan.FromMinutes(1);
+        limiter.QueueLimit = 0;
+    });
     options.AddFixedWindowLimiter("payment", limiter =>
     {
         limiter.PermitLimit = 10;

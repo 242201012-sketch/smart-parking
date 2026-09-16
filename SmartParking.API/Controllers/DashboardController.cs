@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using SmartParking.Application.Interfaces;
 
 namespace SmartParking.API.Controllers;
@@ -14,6 +15,7 @@ namespace SmartParking.API.Controllers;
 [ApiController]
 [Route("api/dashboard")]
 [Authorize]
+[EnableRateLimiting("dashboard")]
 [Produces("application/json")]
 public sealed class DashboardController : ControllerBase
 {
