@@ -1,4 +1,3 @@
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using MongoDB.Bson;
@@ -8,6 +7,7 @@ using SmartParking.Application.Interfaces;
 
 namespace SmartParking.Infrastructure.Telemetry;
 
+/// <summary>MongoDB (AWS DocumentDB uyumlu) telemetri deposu seçenekleri.</summary>
 public sealed class MongoTelemetryStoreOptions
 {
     public string? ConnectionString { get; set; }
@@ -16,12 +16,16 @@ public sealed class MongoTelemetryStoreOptions
     public int AnprRetentionDays { get; set; } = 730;
 }
 
+/// <summary>
+/// Yüksek hacimli sensör/ANPR ham verilerinin MongoDB (AWS DocumentDB uyumlu)
+/// tarafına yazılmasını ve dashboard için birleştirilmiş raporların okunmasını
+/// sağlayan uç. Mongo yapılandırılmadıysa <see cref="NoOpTelemetryStore"/>
+/// kullanılır ve mevcut ilişkisel (EF Core) depolama tek kaynak olarak çalışır.
+/// </summary>
 public sealed class MongoTelemetryStore : ITelemetryStore
 {
     private readonly IMongoDatabase _database;
     private readonly ILogger<MongoTelemetryStore> _logger;
-    private readonly int _sensorRetentionDays;
-    private readonly int _anprRetentionDays;
 
     public MongoTelemetryStore(
         IOptions<MongoTelemetryStoreOptions> options,
@@ -29,9 +33,6 @@ public sealed class MongoTelemetryStore : ITelemetryStore
     {
         _logger = logger;
         var value = options.Value;
-        _sensorRetentionDays = Math.Max(7, value.SensorReadingsRetentionDays);
-        _anprRetentionDays = Math.Max(7, value.AnprRetentionDays);
-
         var client = new MongoClient(value.ConnectionString);
         _database = client.GetDatabase(value.DatabaseName);
     }
@@ -42,42 +43,119 @@ public sealed class MongoTelemetryStore : ITelemetryStore
         SensorReadingDocument reading,
         CancellationToken cancellationToken)
     {
-        try
-        {
-            var collection = _database.GetCollection<SensorReadingBson>("SensorReadings");
-            await EnsureSensorReadingIndexesAsync(collection, cancellationToken);
-            await collection.InsertOneAsync(
-                SensorReadingBson.From(reading),
-                cancellationToken: cancellationToken);
-        }
-        catch (Exception exception)
-        {
-            _logger.LogWarning(exception, "DocumentDB'ye sensör okuması yazılamadı (atlandı).");
-        }
+        var collection = _database.GetCollection<SensorReadingBson>("SensorReadings");
+        await EnsureSensorReadingIndexesAsync(collection, cancellationToken);
+        await collection.InsertOneAsync(
+            SensorReadingBson.From(reading),
+            cancellationToken: cancellationToken);
     }
 
     public async Task RecordAnprEventAsync(
         AnprEventDocument evt,
         CancellationToken cancellationToken)
     {
-        try
-        {
-            var collection = _database.GetCollection<AnprEventBson>("AnprEvents");
-            await EnsureAnprIndexesAsync(collection, cancellationToken);
-            var mapped = AnprEventBson.From(evt);
-            try
+        var collection = _database.GetCollection<AnprEventBson>("AnprEvents");
+        await EnsureAnprIndexesAsync(collection, cancellationToken);
+        await collection.InsertOneAsync(
+            AnprEventBson.From(evt),
+            cancellationToken: cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<CoalescedSensorSpaceView>> GetCoalescedSensorSpaceViewsAsync(
+        Guid parkingLotId,
+        CancellationToken cancellationToken)
+    {
+        var collection = _database.GetCollection<SensorReadingBson>("SensorReadings");
+        var filter = Builders<SensorReadingBson>.Filter.Eq(
+            item => item.ParkingLotId, parkingLotId.ToString());
+        using var cursor = await collection.FindAsync(filter, cancellationToken: cancellationToken);
+        var documents = await cursor.ToListAsync(cancellationToken);
+
+        return documents
+            .GroupBy(item => item.SpaceCode)
+            .Select(group =>
             {
-                await collection.InsertOneAsync(mapped, cancellationToken: cancellationToken);
-            }
-            catch (MongoWriteException exception) when (IsDuplicateKey(exception))
-            {
-                _logger.LogDebug("ANPR olayı zaten mevcut: {EventId}", evt.ExternalEventId);
-            }
-        }
-        catch (Exception exception)
-        {
-            _logger.LogWarning(exception, "DocumentDB'ye ANPR olayı yazılamadı (atlandı).");
-        }
+                var ordered = group.OrderBy(item => item.ObservedAt).ToList();
+                var latest = ordered[^1];
+                var averageBattery = group
+                    .Select(item => item.BatteryPercent)
+                    .Where(battery => battery.HasValue)
+                    .DefaultIfEmpty()
+                    .Average(battery => battery ?? 0);
+
+                return new CoalescedSensorSpaceView(
+                    parkingLotId,
+                    Guid.Parse(ordered[0].ParkingSpaceId),
+                    group.Key,
+                    group.Count(),
+                    ordered[0].ObservedAt,
+                    latest.ObservedAt,
+                    latest.IsOccupied,
+                    averageBattery == 0 ? null : (int)Math.Round(averageBattery),
+                    latest.VehiclePlate,
+                    latest.DeviceId);
+
+            })
+            .OrderBy(view => view.SpaceCode)
+            .ToList();
+    }
+
+    public async Task<IReadOnlyList<AnprTrendPoint>> GetAnprTrendAsync(
+        Guid parkingLotId,
+        DateTime fromUtc,
+        DateTime toUtc,
+        CancellationToken cancellationToken)
+    {
+        var collection = _database.GetCollection<AnprEventBson>("AnprEvents");
+        var filter = Builders<AnprEventBson>.Filter.And(
+            Builders<AnprEventBson>.Filter.Eq(
+                item => item.ParkingLotId, parkingLotId.ToString()),
+            Builders<AnprEventBson>.Filter.Gte(item => item.ObservedAt, fromUtc),
+            Builders<AnprEventBson>.Filter.Lt(item => item.ObservedAt, toUtc));
+        using var cursor = await collection.FindAsync(filter, cancellationToken: cancellationToken);
+        var documents = await cursor.ToListAsync(cancellationToken);
+
+        return documents
+            .GroupBy(item => new DateTime(
+                item.ObservedAt.Year,
+                item.ObservedAt.Month,
+                item.ObservedAt.Day,
+                item.ObservedAt.Hour,
+                0,
+                0,
+                DateTimeKind.Utc))
+            .Select(group => new AnprTrendPoint(
+                group.Key,
+                group.Count(item => item.Direction.Equals("entry", StringComparison.OrdinalIgnoreCase)),
+                group.Count(item => item.Direction.Equals("exit", StringComparison.OrdinalIgnoreCase))))
+            .OrderBy(point => point.BucketStartUtc)
+            .ToList();
+    }
+
+    public async Task<ParkingLotCapacitySnapshot?> GetParkingLotCapacityAsync(
+        Guid parkingLotId,
+        CancellationToken cancellationToken)
+    {
+        var collection = _database.GetCollection<SensorReadingBson>("SensorReadings");
+        var filter = Builders<SensorReadingBson>.Filter.Eq(
+            item => item.ParkingLotId, parkingLotId.ToString());
+        using var cursor = await collection.FindAsync(filter, cancellationToken: cancellationToken);
+        var documents = await cursor.ToListAsync(cancellationToken);
+
+        var latestBySpace = documents
+            .GroupBy(item => item.SpaceCode)
+            .Select(group => group.OrderByDescending(item => item.ObservedAt).First())
+            .ToList();
+
+        var occupiedSpaces = latestBySpace.Count(item => item.IsOccupied);
+
+        return new ParkingLotCapacitySnapshot(
+            parkingLotId,
+            null,
+            latestBySpace.Count,
+            occupiedSpaces,
+            latestBySpace.Count - occupiedSpaces,
+            DateTime.UtcNow);
     }
 
     private async Task EnsureSensorReadingIndexesAsync(
@@ -96,7 +174,7 @@ public sealed class MongoTelemetryStore : ITelemetryStore
                 Builders<SensorReadingBson>.IndexKeys.Ascending(item => item.ObservedAt),
                 new CreateIndexOptions
                 {
-                    ExpireAfter = TimeSpan.FromDays(_sensorRetentionDays)
+                    ExpireAfter = TimeSpan.FromDays(365)
                 }),
             cancellationToken: cancellationToken);
     }
@@ -115,15 +193,10 @@ public sealed class MongoTelemetryStore : ITelemetryStore
                 Builders<AnprEventBson>.IndexKeys.Ascending(item => item.ObservedAt),
                 new CreateIndexOptions
                 {
-                    ExpireAfter = TimeSpan.FromDays(_anprRetentionDays)
+                    ExpireAfter = TimeSpan.FromDays(730)
                 }),
             cancellationToken: cancellationToken);
     }
-
-    private static bool IsDuplicateKey(MongoWriteException exception) =>
-        exception.WriteError?.Category == ServerErrorCategory.DuplicateKey
-        || (exception.WriteError?.Category == ServerErrorCategory.ExecutionTimeout
-            && exception.WriteError.Code == 11000);
 
     private sealed class SensorReadingBson
     {
@@ -157,9 +230,6 @@ public sealed class MongoTelemetryStore : ITelemetryStore
         [BsonElement("vehicle_plate")]
         public string? VehiclePlate { get; set; }
 
-        [BsonElement("metadata_json")]
-        public string? MetadataJson { get; set; }
-
         public static SensorReadingBson From(SensorReadingDocument source) => new()
         {
             DeviceId = source.DeviceId,
@@ -170,8 +240,7 @@ public sealed class MongoTelemetryStore : ITelemetryStore
             IsOccupied = source.IsOccupied,
             ObservedAt = source.ObservedAt,
             BatteryPercent = source.BatteryPercent,
-            VehiclePlate = source.VehiclePlate,
-            MetadataJson = source.MetadataJson
+            VehiclePlate = source.VehiclePlate
         };
     }
 
@@ -214,6 +283,7 @@ public sealed class MongoTelemetryStore : ITelemetryStore
     }
 }
 
+/// <summary>Mongo yapılandırılmadığında kullanılan boş (no-op) telemetri deposu.</summary>
 public sealed class NoOpTelemetryStore : ITelemetryStore
 {
     public bool IsEnabled => false;
@@ -225,4 +295,20 @@ public sealed class NoOpTelemetryStore : ITelemetryStore
     public Task RecordAnprEventAsync(
         AnprEventDocument evt,
         CancellationToken cancellationToken) => Task.CompletedTask;
+
+    public Task<IReadOnlyList<CoalescedSensorSpaceView>> GetCoalescedSensorSpaceViewsAsync(
+        Guid parkingLotId,
+        CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<CoalescedSensorSpaceView>>(
+            Array.Empty<CoalescedSensorSpaceView>());
+
+    public Task<IReadOnlyList<AnprTrendPoint>> GetAnprTrendAsync(
+        Guid parkingLotId,
+        DateTime fromUtc,
+        DateTime toUtc,
+        CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<AnprTrendPoint>>(
+            Array.Empty<AnprTrendPoint>());
+
+    public Task<ParkingLotCapacitySnapshot?> GetParkingLotCapacityAsync(
+        Guid parkingLotId,
+        CancellationToken cancellationToken) => Task.FromResult<ParkingLotCapacitySnapshot?>(null);
 }
