@@ -40,6 +40,7 @@ class _TelemetryDashboardPanelState extends State<TelemetryDashboardPanel> {
   @override
   void initState() {
     super.initState();
+    widget.controller.addListener(_onControllerChanged);
     if (_hasAccess) _load();
   }
 
@@ -95,6 +96,21 @@ class _TelemetryDashboardPanelState extends State<TelemetryDashboardPanel> {
         _isLoading = false;
       });
     }
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_onControllerChanged);
+    if (widget.service == null) _service.dispose();
+    super.dispose();
+  }
+
+  /// Realtime hub'dan gelen otopark guncellemelerinde (sensor/ANPR/session)
+  /// paneli sessizce tazeler — canli push. Yukleme/export suruyorsa atlar.
+  void _onControllerChanged() {
+    if (!mounted || !_hasAccess || _isLoading || _isExporting) return;
+    if (_lotId == null) return;
+    _load();
   }
 
   Future<void> _exportCsv() async {
