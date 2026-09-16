@@ -163,6 +163,36 @@ class TelemetryDashboardService {
     return ParkingLotCapacitySnapshot.fromJson(decoded);
   }
 
+  /// GET api/dashboard/{lotId}/export?format=csv — telemetriyi CSV metni olarak indirir.
+  Future<String> exportCsv({
+    required String accessToken,
+    required String parkingLotId,
+  }) async {
+    try {
+      final response = await _client
+          .get(
+            AppConfig.apiUri(
+              '/api/dashboard/$parkingLotId/export',
+              queryParameters: {'format': 'csv'},
+            ),
+            headers: {'Authorization': 'Bearer $accessToken'},
+          )
+          .timeout(const Duration(seconds: 20));
+      final responseBody = utf8.decode(response.bodyBytes);
+
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw ApiException.fromResponse(response.statusCode, responseBody);
+      }
+      return responseBody;
+    } on ApiException {
+      rethrow;
+    } catch (_) {
+      throw const ApiException(
+        'Telemetri dışa aktarılamadı. İnternet ve API bağlantısını kontrol edin.',
+      );
+    }
+  }
+
   Future<dynamic> _get(
     String path,
     String accessToken, {
@@ -192,6 +222,3 @@ class TelemetryDashboardService {
 
   void dispose() => _client.close();
 }
-
-/// (Okunabilirlik belirteci — derleme zamanı sabiti değildir.)
-const int LIB_TELEMETRY_DASHBOARD_SERVICE_UNUSED_MARKER = -1;

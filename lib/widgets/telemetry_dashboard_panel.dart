@@ -34,6 +34,7 @@ class _TelemetryDashboardPanelState extends State<TelemetryDashboardPanel> {
   List<AnprTrendPoint> _trend = const [];
   ParkingLotCapacitySnapshot? _capacity;
   bool _isLoading = false;
+  bool _isExporting = false;
   String? _error;
 
   @override
@@ -96,6 +97,36 @@ class _TelemetryDashboardPanelState extends State<TelemetryDashboardPanel> {
     }
   }
 
+  Future<void> _exportCsv() async {
+    final token = widget.controller.session?.accessToken;
+    final lotId = _lotId;
+    if (token == null || token.isEmpty || lotId == null) return;
+    setState(() => _isExporting = true);
+    try {
+      final csv = await _service.exportCsv(
+        accessToken: token,
+        parkingLotId: lotId,
+      );
+      if (!mounted) return;
+      final lines = '\n'.allMatches(csv).length;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Telemetri CSV indirildi ($lines satır).')),
+      );
+    } on ApiException catch (exception) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(exception.message)),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Telemetri dışa aktarılamadı.')),
+      );
+    } finally {
+      if (mounted) setState(() => _isExporting = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (!_hasAccess) return const SizedBox.shrink();
@@ -126,6 +157,19 @@ class _TelemetryDashboardPanelState extends State<TelemetryDashboardPanel> {
                   ),
                 ),
                 const Spacer(),
+                if (_isExporting)
+                  const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                else
+                  IconButton(
+                    tooltip: 'CSV indir',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: _exportCsv,
+                    icon: const Icon(Icons.download_rounded, size: 20),
+                  ),
                 if (_isLoading)
                   const SizedBox(
                     width: 16,
