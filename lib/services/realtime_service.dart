@@ -23,6 +23,7 @@ class RealtimeService {
     connection.on('ParkingLotUpdated', (_) => onParkingUpdated());
     connection.on('ParkingSpaceUpdated', (_) => onParkingUpdated());
     connection.on('ParkingLotRefreshRequested', (_) => onParkingUpdated());
+    connection.on('AnprEventReceived', (_) => onParkingUpdated());
     await connection.start();
     _connection = connection;
   }
