@@ -356,10 +356,11 @@ class _PaymentPageState extends State<PaymentPage> {
       }
       await _load();
     } catch (error) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text(error.toString())));
+      }
     } finally {
       if (mounted) setState(() => _startingCheckout = false);
     }
