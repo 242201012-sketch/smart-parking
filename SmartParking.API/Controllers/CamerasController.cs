@@ -104,9 +104,8 @@ public sealed class CamerasController : ControllerBase
             ? plateElement.GetString()
             : null;
         var confidence = root.TryGetProperty("confidence", out var confidenceElement)
-            && confidenceElement.TryGetDecimal(out var confidenceValue)
-                ? confidenceValue
-                : 0m;
+            ? ReadConfidence(confidenceElement)
+            : 0m;
 
         if (string.IsNullOrWhiteSpace(plate))
             return StatusCode(422, new { message = "Plaka okunamadı.", confidence });
@@ -125,6 +124,32 @@ public sealed class CamerasController : ControllerBase
         }
 
         return Ok(new { accepted = true, plate, confidence });
+    }
+
+    private static decimal ReadConfidence(JsonElement element)
+    {
+        try
+        {
+            switch (element.ValueKind)
+            {
+                case JsonValueKind.Number:
+                    return element.TryGetDecimal(out var number) ? number : 0m;
+                case JsonValueKind.String:
+                    return decimal.TryParse(
+                        element.GetString(),
+                        System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        out var textNumber)
+                        ? textNumber
+                        : 0m;
+                default:
+                    return 0m;
+            }
+        }
+        catch (Exception)
+        {
+            return 0m;
+        }
     }
 
     private async Task IngestRecognizedEventAsync(AnprEventRequest request, CancellationToken cancellationToken)

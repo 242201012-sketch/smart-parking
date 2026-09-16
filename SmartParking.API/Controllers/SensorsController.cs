@@ -152,8 +152,8 @@ public sealed class SensorsController : ControllerBase
                 ObservedAt: observedAt,
                 BatteryPercent: request.BatteryPercent,
                 VehiclePlate: plate,
-                MetadataJson: request.Metadata is null ? null : System.Text.Json.JsonSerializer.Serialize(request.Metadata)
-            ), cancellationToken);
+                MetadataJson: request.Metadata is null ? null : JsonSerializer.Serialize(request.Metadata)
+            ), CancellationToken.None);
         }
 
         var update = new
