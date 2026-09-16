@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../config/app_theme.dart';
 import '../state/app_controller.dart';
 import '../widgets/parking_card.dart';
+import '../widgets/telemetry_dashboard_panel.dart';
 
 class DashboardPage extends StatelessWidget {
   const DashboardPage({super.key, required this.controller});
@@ -203,6 +204,8 @@ class DashboardPage extends StatelessWidget {
               ],
             ),
           ),
+          const SizedBox(height: 24),
+          TelemetryDashboardPanel(controller: controller),
           if (controller.nearestParking != null) ...[
             const SizedBox(height: 24),
             const _SectionTitle(title: 'En yakın sonuç'),
