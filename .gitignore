@@ -66,6 +66,9 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 
+# Auto-generated Flutter plugin registrant (Her build'de yeniden uretilir)
+android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java
+
 .gradle/
 /android/build/
 

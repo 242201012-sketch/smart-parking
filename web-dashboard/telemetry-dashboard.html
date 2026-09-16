@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SmartParking Telemetri Panosu (v0)</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 0; background: #f2f7f5; color: #17332e; }
+  header { background: #105c4e; color: #fff; padding: 14px 20px; }
+  header h1 { margin: 0; font-size: 18px; }
+  main { max-width: 900px; margin: 0 auto; padding: 16px; }
+  .card { background: #fff; border: 1px solid #dce7e2; border-radius: 14px; padding: 14px; margin-bottom: 12px; }
+  label { display: block; font-size: 12px; font-weight: 700; margin: 8px 0 4px; }
+  input { width: 100%; box-sizing: border-box; padding: 8px; border: 1px solid #dce7e2; border-radius: 8px; }
+  button { background: #22816d; color: #fff; border: 0; border-radius: 8px; padding: 9px 16px; font-weight: 700; cursor: pointer; margin-top: 10px; }
+  button.secondary { background: #fff; color: #105c4e; border: 1px solid #22816d; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #eef3f1; }
+  .bar { display: inline-block; height: 12px; border-radius: 3px; margin-right: 3px; vertical-align: middle; }
+  .in { background: #22816d; } .out { background: #e49335; }
+  #status { font-size: 12px; color: #55706a; margin-top: 8px; }
+  .err { color: #b3261e; }
+</style>
+</head>
+<body>
+<header><h1>SmartParking Telemetri Panosu (v0)</h1></header>
+<main>
+  <div class="card">
+    <label>API adresi</label>
+    <input id="base" value="http://127.0.0.1:58278">
+    <label>JWT (POST /api/auth/login → AccessToken)</label>
+    <input id="token" placeholder="eyJhbGciOi...">
+    <label>Otopark ID (GET /api/parking → Id)</label>
+    <input id="lot" placeholder="0df3d4c5-...">
+    <button onclick="load()">Yükle</button>
+    <button class="secondary" onclick="downloadCsv()">CSV indir</button>
+    <div id="status">Hazır.</div>
+  </div>
+  <div class="card"><h3>Kapasite</h3><div id="capacity">—</div></div>
+  <div class="card"><h3>Birleşmiş sensörler</h3><div id="spaces">—</div></div>
+  <div class="card"><h3>ANPR trendi (son 24 saat)</h3><div id="trend">—</div></div>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/@microsoft/signalr@8.0.0/dist/browser/signalr.min.js"></script>
+<script>
+let hub = null;
+const $ = (id) => document.getElementById(id);
+const status = (msg, isErr) => {
+  const el = $('status');
+  el.textContent = msg;
+  el.className = isErr ? 'err' : '';
+};
+const authHeaders = () => ({ 'Authorization': 'Bearer ' + $('token').value.trim() });
+async function api(path) {
+  const res = await fetch($('base').value.replace(/\/$/, '') + path, { headers: authHeaders() });
+  if (!res.ok) throw new Error(path + ' -> HTTP ' + res.status);
+  const ct = res.headers.get('content-type') || '';
+  return ct.includes('json') ? res.json() : res.text();
+}
+function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+async function load() {
+  const lot = $('lot').value.trim();
+  if (!lot) return status('Otopark ID girin.', true);
+  try {
+    status('Yükleniyor…');
+    const [spaces, trend, cap] = await Promise.all([
+      api('/api/dashboard/' + lot + '/coalesced-sensor-spaces'),
+      api('/api/dashboard/' + lot + '/anpr-trend'),
+      api('/api/dashboard/' + lot + '/capacity').catch(() => null),
+    ]);
+    $('capacity').innerHTML = cap
+      ? '<b>' + cap.availableSpaces + '</b> boş / ' + cap.totalSpaces + ' toplam (%' + Math.round(cap.occupiedSpaces / Math.max(1, cap.totalSpaces) * 100) + ' dolu)'
+      : 'Kapasite verisi yok (telemetri deposu boş olabilir).';
+    $('spaces').innerHTML = spaces.length === 0 ? 'Kayıt yok.' :
+      '<table><tr><th>Alan</th><th>Okuma</th><th>Dolu</th><th>Batarya</th></tr>' +
+      spaces.slice(0, 20).map((s) =>
+        '<tr><td>' + esc(s.spaceCode) + '</td><td>' + s.readingCount + '</td><td>' +
+        (s.isOccupied ? 'Evet' : 'Hayır') + '</td><td>' + (s.batteryPercent ?? '—') + '</td></tr>'
+      ).join('') + '</table>';
+    const last = trend.slice(-8);
+    const max = Math.max(1, ...last.flatMap((p) => [p.entries, p.exits]));
+    $('trend').innerHTML = last.length === 0 ? 'Kayıt yok.' :
+      last.map((p) => {
+        const h = new Date(p.bucketStartUtc).getHours().toString().padStart(2, '0') + ':00';
+        const wIn = Math.round(p.entries / max * 90), wOut = Math.round(p.exits / max * 90);
+        return '<div>' + h + ' <span class="bar in" style="width:' + wIn + 'px"></span>' + p.entries +
+          ' <span class="bar out" style="width:' + wOut + 'px"></span>' + p.exits + '</div>';
+      }).join('');
+    status('Tamamlandı: ' + new Date().toLocaleTimeString());
+    startHub();
+  } catch (e) { status('Hata: ' + e.message, true); }
+}
+async function downloadCsv() {
+  const lot = $('lot').value.trim();
+  if (!lot) return status('Otopark ID girin.', true);
+  try {
+    const res = await fetch($('base').value.replace(/\/$/, '') + '/api/dashboard/' + lot + '/export?format=csv', { headers: authHeaders() });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const blob = await res.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'dashboard-' + lot + '.csv';
+    a.click();
+    URL.revokeObjectURL(a.href);
+    status('CSV indirildi.');
+  } catch (e) { status('Hata: ' + e.message, true); }
+}
+async function startHub() {
+  try {
+    if (typeof signalR === 'undefined') return status('Canlı bağlantı yok (CDN erişilemedi); Yenile ile devam edin.');
+    if (hub) await hub.stop();
+    hub = new signalR.HubConnectionBuilder()
+      .withUrl($('base').value.replace(/\/$/, '') + '/hubs/parking', { accessTokenFactory: () => $('token').value.trim() })
+      .withAutomaticReconnect()
+      .build();
+    const lot = $('lot').value.trim();
+    const reloadIfMine = (id) => { if (id === lot || (id && id.parkingLotId === lot)) load(); };
+    hub.on('ParkingSpaceUpdated', reloadIfMine);
+    hub.on('ParkingLotUpdated', (u) => { if ((u.id || u.parkingLotId) === lot) load(); });
+    hub.on('AnprEventReceived', reloadIfMine);
+    hub.on('ParkingLotRefreshRequested', reloadIfMine);
+    await hub.start();
+    status('Canlı bağlantı açık.');
+  } catch (e) { status('Canlı bağlantı kurulamadı: ' + e.message + ' (Yenile ile devam edilebilir).'); }
+}
+</script>
+</body>
+</html>
