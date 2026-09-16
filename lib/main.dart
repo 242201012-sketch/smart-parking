@@ -49,7 +49,7 @@ class SmartParkingApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
       navigatorObservers: [
-        if (controller.analyticsObserver case final observer?) observer,
+        ?controller.analyticsObserver,
       ],
       home: _AppGate(controller: controller),
     );

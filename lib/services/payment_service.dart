@@ -25,8 +25,9 @@ class PaymentService {
       '/api/payments/payable-sessions',
       accessToken: accessToken,
     );
-    if (decoded is! List)
+    if (decoded is! List) {
       throw const ApiException('Ödenecek oturum listesi geçersiz.');
+    }
     return decoded
         .whereType<Map<String, dynamic>>()
         .map(PayableSession.fromJson)
