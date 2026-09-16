@@ -29,6 +29,7 @@ builder.Services.AddSignalR();
 builder.Services.AddHealthChecks()
     .AddCheck<DatabaseHealthCheck>("database");
 builder.Services.AddHostedService<ReservationExpiryService>();
+builder.Services.AddHostedService<TelemetryRetentionService>();
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;

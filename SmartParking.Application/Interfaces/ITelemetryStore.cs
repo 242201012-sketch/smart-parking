@@ -54,6 +54,11 @@ public sealed record ParkingLotCapacitySnapshot(
     int AvailableSpaces,
     DateTime AsOfUtc);
 
+/// <summary>Retention temizliğinde silinen kayıt sayıları.</summary>
+public sealed record TelemetryPurgeResult(
+    int DeletedSensorReadings,
+    int DeletedAnprEvents);
+
 /// <summary>
 /// Yüksek hacimli sensör/ANPR ham verilerinin MongoDB (AWS DocumentDB uyumlu)
 /// tarafına yazılmasını sağlayan uç. Mongo yapılandırılmadıysa işlem atlanır ve
@@ -98,5 +103,12 @@ public interface ITelemetryStore
     /// </summary>
     Task<ParkingLotCapacitySnapshot?> GetParkingLotCapacityAsync(
         Guid parkingLotId,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Retention sürelerini aşan ham kayıtları siler (sensör + ANPR).
+    /// </summary>
+    Task<TelemetryPurgeResult> PurgeExpiredAsync(
+        DateTime utcNow,
         CancellationToken cancellationToken);
 }
