@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SmartParking.Application.Interfaces;
@@ -78,5 +80,55 @@ public sealed class DashboardController : ControllerBase
         return snapshot is null
             ? NotFound(new { parkingLotId, message = "Kapasite verisi bulunamadı." })
             : Ok(snapshot);
+    }
+
+    /// <summary>
+    /// GET api/dashboard/{parkingLotId}/export?format=csv
+    /// Dashboard telemetrisini tek indirilebilir CSV'de toplar:
+    /// birleştirilmiş sensör görünümleri + kapasite özeti.
+    /// </summary>
+    [HttpGet("{parkingLotId:guid}/export")]
+    [Produces("text/csv")]
+    [ProducesResponseType(typeof(FileContentResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> ExportTelemetry(
+        Guid parkingLotId,
+        [FromQuery] string format = "csv",
+        CancellationToken cancellationToken = default)
+    {
+        if (!string.Equals(format, "csv", StringComparison.OrdinalIgnoreCase))
+        {
+            return BadRequest(new { format, message = "Yalnızca 'csv' desteklenir." });
+        }
+
+        var spaces = await _telemetryStore.GetCoalescedSensorSpaceViewsAsync(
+            parkingLotId, cancellationToken);
+        var capacity = await _telemetryStore.GetParkingLotCapacityAsync(
+            parkingLotId, cancellationToken)
+            ?? new ParkingLotCapacitySnapshot(
+                parkingLotId, null, 0, 0, 0, DateTime.UtcNow);
+
+        var sb = new StringBuilder();
+        sb.Append("﻿");
+        sb.AppendLine("kod,uzay_kodu,okuma_sayisi,dolu,son_okuma_utc");
+        foreach (var space in spaces)
+        {
+            sb.AppendLine(string.Join(',',
+                space.SpaceCode,
+                space.ReadingCount,
+                space.IsOccupied ? "EVET" : "HAYIR",
+                space.LastObservedAtUtc.ToString("O", CultureInfo.InvariantCulture)));
+        }
+
+        sb.AppendLine();
+        sb.AppendLine("# KAPASITE #");
+        sb.AppendLine($"toplam,{capacity.TotalSpaces}");
+        sb.AppendLine($"dolu,{capacity.OccupiedSpaces}");
+        sb.AppendLine($"musait,{capacity.AvailableSpaces}");
+        sb.AppendLine($"as_of_utc,{capacity.AsOfUtc.ToString("O", CultureInfo.InvariantCulture)}");
+
+        var bytes = Encoding.UTF8.GetBytes(sb.ToString());
+        var fileName = $"dashboard-{parkingLotId:N}-{DateTime.UtcNow:yyyyMMddHHmm}.csv";
+        return File(bytes, "text/csv; charset=utf-8", fileName);
     }
 }

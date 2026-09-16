@@ -71,6 +71,18 @@ void main() {
           );
         }
 
+        if (path.endsWith('/export')) {
+          return http.Response(
+            'kod,uzay_kodu,okuma_sayisi,dolu,son_okuma_utc\n'
+            'A12,14,EVET,2026-09-16T12:30:00.0000000Z\n'
+            '\n'
+            '# KAPASITE #\n'
+            'toplam,100\n',
+            200,
+            headers: {'content-type': 'text/csv; charset=utf-8'},
+          );
+        }
+
         return http.Response(
           '{"error":"not-found"}',
           404,
@@ -115,6 +127,17 @@ void main() {
       expect(capacity.occupiedSpaces, 68);
       expect(capacity.availableSpaces, 32);
       expect(capacity.occupancyRatio, closeTo(0.68, 0.001));
+    });
+
+    test('export: CSV metni baslik + satirlariyla doner', () async {
+      final csv = await service.exportCsv(
+        accessToken: 'test-token',
+        parkingLotId: lotId,
+      );
+
+      expect(csv, contains('kod,uzay_kodu,okuma_sayisi,dolu,son_okuma_utc'));
+      expect(csv, contains('# KAPASITE #'));
+      expect(csv, contains('toplam,100'));
     });
   });
 }
